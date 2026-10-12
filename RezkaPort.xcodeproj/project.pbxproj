@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		04A8DF17695EB4600D53316E /* WatchSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6790D1196FD752B43D0C798F /* WatchSyncManager.swift */; };
 		09C561FEDA184F5A3AFC206D /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2A827C2A837DBA0CBB35C21 /* SearchView.swift */; };
 		0F9F4F56953D25281AAC440D /* DemoContentSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D6E6F9DAC2ACF8BC38FA695 /* DemoContentSource.swift */; };
 		159BF3704BFABD9CB153C0CB /* RezkaContentSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7FE23B46E8DE4FD7C4AC6B3 /* RezkaContentSource.swift */; };
@@ -24,6 +25,7 @@
 		4F52E0C2FF27FA75F0FBCA1E /* MediaItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E0EC9D196EB6251BA603C6 /* MediaItem.swift */; };
 		59D5B213AF3AB3450A6D28BB /* RezkaMirrorManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E39451783F193FA383C6140 /* RezkaMirrorManager.swift */; };
 		65AA9400098C62CE44E62C84 /* NativePlayerFixture.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = F6F8E59E55F5468F3A4ADE1F /* NativePlayerFixture.mp4 */; };
+		67630E6B42BC1C1DB8A18AC1 /* WatchRecordSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F41D40987DFE7FFE04FB865A /* WatchRecordSyncTests.swift */; };
 		6830C4F2458794627CE566A8 /* DetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31CE299F0847B2CDB96B8FD8 /* DetailView.swift */; };
 		6A4E1CD24F7E1973E7977943 /* RezkaPageParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E4E2B61D2D88880410CC96F /* RezkaPageParser.swift */; };
 		6C2953A562738C5CA80AE7D8 /* LibraryViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE219FFE612D35E39ED119C3 /* LibraryViews.swift */; };
@@ -38,6 +40,7 @@
 		9EBA2CBDFA20B41F92304361 /* RezkaPortApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0EF6E1B91359FB7E89CA7C /* RezkaPortApp.swift */; };
 		A890467954C7D9452772B8FF /* OfflineVideoDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E11690E9678E36063A41E89C /* OfflineVideoDownloader.swift */; };
 		BCBBDC061FC376ABD5475761 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0C864DF373275A51727CA6D /* HomeView.swift */; };
+		BF7E9A14A5FEE0C351101F4E /* SyncServerAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5FAAB061E94FF3C11E754CC /* SyncServerAddress.swift */; };
 		C3353B62C30F04209DC46365 /* RezkaReleaseScheduleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A0451E03248DD732E90B88B /* RezkaReleaseScheduleView.swift */; };
 		D2F9B1767C0AC020DFC3B385 /* RezkaUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC19C28232AC7ED5D1B4A9AC /* RezkaUITests.swift */; };
 		D6E26FF55C082C97253759F0 /* MediaCountry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 094E55B72B371BA6D4F8F3B3 /* MediaCountry.swift */; };
@@ -84,6 +87,7 @@
 		514967F02F51648F9EBC9D79 /* RezkaPortUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RezkaPortUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		551FAF3BDE375C14B7FA341C /* RezkaPortTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RezkaPortTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		6577E07A801F4DC8E3592734 /* RezkaPort.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RezkaPort.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6790D1196FD752B43D0C798F /* WatchSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSyncManager.swift; sourceTree = "<group>"; };
 		6E706E755C3CA9E7935B23CE /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		8B5FFEF26BCD62210F419B0C /* RezkaPlaybackServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RezkaPlaybackServices.swift; sourceTree = "<group>"; };
 		8E39451783F193FA383C6140 /* RezkaMirrorManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RezkaMirrorManager.swift; sourceTree = "<group>"; };
@@ -94,6 +98,7 @@
 		A4E0EC9D196EB6251BA603C6 /* MediaItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaItem.swift; sourceTree = "<group>"; };
 		A6EF2628B38AB62CAACC75F2 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		AB7594BDE3C17F4ADE006A56 /* OfflineDownloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineDownloadTests.swift; sourceTree = "<group>"; };
+		B5FAAB061E94FF3C11E754CC /* SyncServerAddress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncServerAddress.swift; sourceTree = "<group>"; };
 		B9EBFED0EB8BD0D515B2038F /* RezkaVerificationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RezkaVerificationView.swift; sourceTree = "<group>"; };
 		BC19C28232AC7ED5D1B4A9AC /* RezkaUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RezkaUITests.swift; sourceTree = "<group>"; };
 		CE219FFE612D35E39ED119C3 /* LibraryViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryViews.swift; sourceTree = "<group>"; };
@@ -104,6 +109,7 @@
 		E7FE23B46E8DE4FD7C4AC6B3 /* RezkaContentSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RezkaContentSource.swift; sourceTree = "<group>"; };
 		EB04400EE5EA2D444A449987 /* ArtworkCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkCache.swift; sourceTree = "<group>"; };
 		EEC3BB93EFC69ABB6EC7107D /* RezkaUITestTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RezkaUITestTransport.swift; sourceTree = "<group>"; };
+		F41D40987DFE7FFE04FB865A /* WatchRecordSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchRecordSyncTests.swift; sourceTree = "<group>"; };
 		F6E7EE01D6E66FCC13B661CA /* RezkaHttpClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RezkaHttpClient.swift; sourceTree = "<group>"; };
 		F6F8E59E55F5468F3A4ADE1F /* NativePlayerFixture.mp4 */ = {isa = PBXFileReference; path = NativePlayerFixture.mp4; sourceTree = "<group>"; };
 		F92C720A5A12F83FF3AB9137 /* RezkaConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RezkaConfiguration.swift; sourceTree = "<group>"; };
@@ -229,6 +235,7 @@
 				E11690E9678E36063A41E89C /* OfflineVideoDownloader.swift */,
 				170436B3693ACC4A2CBFDB9D /* RezkaLayoutDiagnostics.swift */,
 				EEC3BB93EFC69ABB6EC7107D /* RezkaUITestTransport.swift */,
+				6790D1196FD752B43D0C798F /* WatchSyncManager.swift */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -248,6 +255,7 @@
 				A4E0EC9D196EB6251BA603C6 /* MediaItem.swift */,
 				2CBB38BE27F060623CFB5B50 /* RezkaModels.swift */,
 				49242E8A5716556FBBD5BD2F /* RezkaScheduleDisplay.swift */,
+				B5FAAB061E94FF3C11E754CC /* SyncServerAddress.swift */,
 			);
 			path = Domain;
 			sourceTree = "<group>";
@@ -292,6 +300,7 @@
 				AB7594BDE3C17F4ADE006A56 /* OfflineDownloadTests.swift */,
 				11FB49359F3C1CBDE53D1F03 /* PlaybackHistoryTests.swift */,
 				3A509A94301BD58E28B82F90 /* RezkaScrapingTests.swift */,
+				F41D40987DFE7FFE04FB865A /* WatchRecordSyncTests.swift */,
 			);
 			path = StreamingAppTests;
 			sourceTree = "<group>";
@@ -470,6 +479,8 @@
 				9EA541CDB89E429DF06969F1 /* RezkaVerificationView.swift in Sources */,
 				09C561FEDA184F5A3AFC206D /* SearchView.swift in Sources */,
 				EA277FD93F0CE8DEA5B8FFCD /* SettingsView.swift in Sources */,
+				BF7E9A14A5FEE0C351101F4E /* SyncServerAddress.swift in Sources */,
+				04A8DF17695EB4600D53316E /* WatchSyncManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -480,6 +491,7 @@
 				45E6CC4677E819D16230E275 /* OfflineDownloadTests.swift in Sources */,
 				365AE25188BC8EF53B435450 /* PlaybackHistoryTests.swift in Sources */,
 				91A736737C2700AC8C0E7661 /* RezkaScrapingTests.swift in Sources */,
+				67630E6B42BC1C1DB8A18AC1 /* WatchRecordSyncTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -575,7 +587,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -601,7 +613,7 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -714,7 +726,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = "";
 				ENABLE_NS_ASSERTIONS = NO;
@@ -734,7 +746,7 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.1.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.personal.rezkaport;

@@ -8,7 +8,7 @@
   <img src="screenshots/search.jpg" width="32%" alt="Search on iPhone">
 </p>
 
-Looking for Android, tablets or Google TV? See [rezka-android](https://github.com/lastrowcritic/rezka-android).
+Looking for Android, tablets or Google TV? See [rezka-android](https://github.com/lastrowcritic/rezka-android). Want your history on every device? Host your own [rezka-sync-server](https://github.com/lastrowcritic/rezka-sync-server).
 
 ## Disclaimer
 
@@ -26,8 +26,15 @@ This project is only a client. It does not host, upload, store or distribute any
 - **Download** films and episodes to watch offline.
 - **Hide countries** you are not interested in, across the whole app.
 - **Watchlist** and viewing history, saved on your iPhone.
+- **Sync** your history across devices with your own server (optional).
 
-All of your data stays on your iPhone. The app has no accounts, no analytics and no server of its own.
+All of your data stays on your iPhone. The app has no analytics and no server of its own.
+
+## Sync across devices (optional)
+
+Your history and the position in each episode can follow you between your phone, tablet, TV and iPhone. Sync uses a small server that you host yourself: [rezka-sync-server](https://github.com/lastrowcritic/rezka-sync-server). It is a few PHP files that run on almost any web hosting plan, and its README explains the setup step by step.
+
+Then open **Settings → Sync across devices** in the app, enter your server address and sign in. Sync is off until you do this.
 
 ## How it works
 

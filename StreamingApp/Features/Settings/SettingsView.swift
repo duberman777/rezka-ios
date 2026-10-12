@@ -4,6 +4,12 @@ struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var showingClearHistoryAlert = false
     @State private var mirrorHost = ""
+    @State private var syncEmail = ""
+    @State private var syncPassword = ""
+    @State private var syncMode = "login"
+    @State private var syncBusy = false
+    @State private var syncError: String?
+    @State private var syncServer = ""
 
     private let qualities = ["Auto", "2160p", "1440p", "1080p", "720p", "480p", "360p"]
 
@@ -61,6 +67,69 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Sync across devices") {
+                TextField("https://sync.example.com", text: $syncServer)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                    .accessibilityLabel("Sync server address")
+                Button("Use this server") {
+                    Task {
+                        syncBusy = true
+                        syncError = nil
+                        defer { syncBusy = false }
+                        do {
+                            try await model.watchSync.setServer(syncServer)
+                            syncServer = model.watchSync.server?.absoluteString ?? ""
+                        } catch { syncError = error.localizedDescription }
+                    }
+                }
+                .disabled(syncBusy || syncServer == (model.watchSync.server?.absoluteString ?? ""))
+                Text("Continue watching on any device. Sync uses a server you host yourself. Leave the address empty to keep your history on this iPhone only.")
+                    .font(.caption)
+                    .foregroundStyle(AppColors.secondaryText)
+                if model.watchSync.server != nil, let email = model.watchSync.email {
+                    LabeledContent("Signed in", value: email)
+                    Button("Sign out") {
+                        Task { await model.watchSync.signOut() }
+                    }
+                    .disabled(syncBusy)
+                } else if model.watchSync.server != nil {
+                    TextField("Email", text: $syncEmail)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.emailAddress)
+                        .textContentType(.emailAddress)
+                    SecureField("Password", text: $syncPassword)
+                        .textContentType(syncMode == "login" ? .password : .newPassword)
+                    Text("Use the same account on each device. Passwords are protected and are never stored in the app.")
+                        .font(.caption)
+                        .foregroundStyle(AppColors.secondaryText)
+                    Button(syncBusy ? "Connecting" : syncMode == "login" ? "Sign in" : "Create account") {
+                        Task {
+                            syncBusy = true
+                            syncError = nil
+                            defer { syncBusy = false }
+                            do {
+                                let records = try await model.watchSync.authenticate(mode: syncMode, email: syncEmail, password: syncPassword, local: model.cloudHistoryRecords)
+                                model.installCloudHistory(records)
+                                syncPassword = ""
+                            } catch { syncError = error.localizedDescription }
+                        }
+                    }
+                    .disabled(syncBusy || syncEmail.isEmpty || syncPassword.count < 10)
+                    Button(syncMode == "login" ? "Create an account" : "I already have an account") {
+                        syncMode = syncMode == "login" ? "register" : "login"
+                        syncError = nil
+                    }
+                    .disabled(syncBusy)
+                }
+                if let status = syncError ?? (model.watchSync.status.isEmpty ? nil : model.watchSync.status) {
+                    Text(status)
+                        .font(.caption)
+                        .foregroundStyle(syncError == nil ? AppColors.secondaryText : .red)
+                }
+            }
 
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.3.10")
@@ -72,6 +141,7 @@ struct SettingsView: View {
         }
         .scrollContentBackground(.hidden)
         .background(AppColors.background)
+        .onAppear { syncServer = model.watchSync.server?.absoluteString ?? "" }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.large)
         .confirmationDialog("Clear all watch history?", isPresented: $showingClearHistoryAlert, titleVisibility: .visible) {

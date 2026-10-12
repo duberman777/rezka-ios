@@ -252,6 +252,8 @@ struct DetailView: View {
         .toolbarBackground(isPastHero ? .visible : .hidden, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .fullScreenCover(isPresented: $showingPlayer, onDismiss: {
+            // Send the stopping point now so another device can resume from it right away.
+            Task { await model.syncHistoryNow() }
             if let record = model.history.first(where: { $0.item.id == item.id }), let season = record.seasonID, let episode = record.episodeID {
                 seasonID = season
                 episodeID = episode
@@ -483,6 +485,8 @@ struct DetailView: View {
         model.errorMessage = nil
         isResolvingPlayback = true
         defer { isResolvingPlayback = false }
+        // Another device may have saved a later position since this one last synced.
+        async let cloudRefresh: Void = startOver ? () : model.refreshCloudHistory()
         do {
             if let url = currentItem.streamURL {
                 playbackRequest = nil
@@ -493,6 +497,7 @@ struct DetailView: View {
                 playbackSource = try await model.contentSource.playback(request: request)
                 playbackRequest = request
             }
+            await cloudRefresh
             if startOver {
                 model.recordProgress(for: currentItem, position: 0, duration: 0, request: playbackRequest)
             } else if let request = playbackRequest, let season = request.season, let episode = request.episode,

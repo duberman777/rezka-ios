@@ -64,5 +64,12 @@ struct MainTabsView: View {
             }
             #endif
         }
+        .task { await model.syncHistoryOnLaunch() }
+        .onChange(of: scenePhase) { _, phase in
+            Task {
+                if phase == .active { await model.refreshCloudHistory() }
+                else { await model.syncHistoryBeforeLeaving() }
+            }
+        }
     }
 }
