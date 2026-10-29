@@ -5,6 +5,28 @@ import XCTest
 
 @MainActor
 final class PlaybackHistoryTests: XCTestCase {
+    func testPauseBufferTargetIsTenMinutesOrRemainingEpisodeDuration() {
+        XCTAssertEqual(PauseBufferPolicy.requestedSeconds(at: 60, duration: 2400), 600)
+        XCTAssertEqual(PauseBufferPolicy.requestedSeconds(at: 2300, duration: 2400), 100)
+        XCTAssertEqual(PauseBufferPolicy.requestedSeconds(at: 2400, duration: 2400), 0)
+        XCTAssertEqual(PauseBufferPolicy.requestedSeconds(at: 60, duration: .nan), 600)
+    }
+
+    func testPauseBufferIndicatorCountsOnlyContinuousDataFromThePlayhead() {
+        func range(_ start: Double, _ duration: Double) -> CMTimeRange {
+            CMTimeRange(start: CMTime(seconds: start, preferredTimescale: 600),
+                        duration: CMTime(seconds: duration, preferredTimescale: 600))
+        }
+        // Out-of-order and overlapping ranges are merged. A later scene after
+        // a gap must not be reported as immediately playable buffered data.
+        let ranges = [range(150, 100), range(500, 100), range(100, 60), range(0, 50)]
+        XCTAssertEqual(PauseBufferPolicy.bufferedSecondsAhead(at: 120, ranges: ranges), 130, accuracy: 0.001)
+        XCTAssertEqual(PauseBufferPolicy.bufferedSecondsAhead(at: 300, ranges: ranges), 0)
+        XCTAssertEqual(PauseBufferPolicy.bufferedSecondsAhead(at: .nan, ranges: ranges), 0)
+        XCTAssertEqual(PauseBufferPolicy.bufferedSecondsAhead(at: 120, ranges: [.invalid]), 0)
+        XCTAssertEqual(PauseBufferPolicy.bufferedSecondsAhead(at: 120, ranges: []), 0)
+    }
+
     func testBackgroundCheckpointKeepsMinutesAndSecondsAfterRelaunch() throws {
         let suite = "RezkaCheckpointTests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

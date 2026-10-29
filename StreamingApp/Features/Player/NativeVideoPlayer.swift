@@ -36,6 +36,14 @@ final class NativePlayerHost: UIViewController, @preconcurrency AVPlayerViewCont
     private var onStop: (@MainActor () -> Void)?
     private var onClose: (@MainActor () -> Void)?
     private var itemObservation: AnyCancellable?
+    private var playbackObservation: AnyCancellable?
+    private var bufferObservation: AnyCancellable?
+    private var timeJumpObservation: AnyCancellable?
+    private var hasRequestedPlayback = false
+    private var didRequestLongBuffer = false
+    private weak var bufferingItem: AVPlayerItem?
+    private let bufferLabel = UILabel()
+    private let bufferBadge = UIStackView()
 
     override var shouldAutorotate: Bool { true }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .allButUpsideDown }
@@ -44,9 +52,20 @@ final class NativePlayerHost: UIViewController, @preconcurrency AVPlayerViewCont
                    onStop: @escaping @MainActor () -> Void, onClose: @escaping @MainActor () -> Void) {
         if playback.player !== player {
             playback.player = player
-            itemObservation = player.publisher(for: \.currentItem).sink { [weak self] item in
-                self?.updatePlaybackDescription(item)
-            }
+            itemObservation = player.publisher(for: \.currentItem)
+                .receive(on: RunLoop.main)
+                .sink { [weak self] item in
+                    MainActor.assumeIsolated {
+                        guard let self, self.playback.player?.currentItem === item else { return }
+                        self.updatePlaybackDescription(item)
+                        self.observeBuffering(item)
+                    }
+                }
+            playbackObservation = player.publisher(for: \.timeControlStatus)
+                .receive(on: RunLoop.main)
+                .sink { [weak self] _ in
+                    MainActor.assumeIsolated { self?.updatePauseBuffer() }
+                }
         }
         self.onClose = onClose
         updatePlaybackDescription(player.currentItem, fallback: playbackDescription)
@@ -72,6 +91,78 @@ final class NativePlayerHost: UIViewController, @preconcurrency AVPlayerViewCont
         playback.exitsFullScreenWhenPlaybackEnds = false
         playback.loadViewIfNeeded()
         playback.view.accessibilityIdentifier = "native-player"
+        installBufferBadge()
+    }
+
+    private func installBufferBadge() {
+        guard let overlay = playback.contentOverlayView else { return }
+        bufferLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+        bufferLabel.textColor = .white
+        bufferLabel.textAlignment = .center
+        bufferLabel.numberOfLines = 2
+        bufferLabel.accessibilityIdentifier = "paused-buffer-status"
+        bufferBadge.addArrangedSubview(bufferLabel)
+        bufferBadge.isLayoutMarginsRelativeArrangement = true
+        bufferBadge.layoutMargins = UIEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
+        bufferBadge.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        bufferBadge.layer.cornerRadius = 12
+        bufferBadge.isUserInteractionEnabled = false
+        bufferBadge.isHidden = true
+        bufferBadge.translatesAutoresizingMaskIntoConstraints = false
+        overlay.addSubview(bufferBadge)
+        NSLayoutConstraint.activate([
+            bufferBadge.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+            bufferBadge.topAnchor.constraint(equalTo: overlay.safeAreaLayoutGuide.topAnchor, constant: 64),
+            bufferBadge.leadingAnchor.constraint(greaterThanOrEqualTo: overlay.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            bufferBadge.trailingAnchor.constraint(lessThanOrEqualTo: overlay.safeAreaLayoutGuide.trailingAnchor, constant: -16)
+        ])
+        updatePauseBuffer()
+    }
+
+    private func observeBuffering(_ item: AVPlayerItem?) {
+        guard bufferingItem !== item else { updatePauseBuffer(); return }
+        bufferObservation = nil
+        timeJumpObservation = nil
+        bufferingItem = item
+        hasRequestedPlayback = false
+        didRequestLongBuffer = false
+        guard let item else { updatePauseBuffer(); return }
+        bufferObservation = item.publisher(for: \.loadedTimeRanges)
+            .combineLatest(item.publisher(for: \.status))
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.updatePauseBuffer() }
+            }
+        timeJumpObservation = NotificationCenter.default.publisher(for: AVPlayerItem.timeJumpedNotification, object: item)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.updatePauseBuffer() }
+            }
+        updatePauseBuffer()
+    }
+
+    private func updatePauseBuffer() {
+        guard !isTearingDown, let player = playback.player, let item = player.currentItem else {
+            bufferBadge.isHidden = true
+            return
+        }
+        guard bufferingItem === item else { observeBuffering(item); return }
+        if player.timeControlStatus != .paused { hasRequestedPlayback = true }
+        let position = player.currentTime().seconds
+        let duration = item.duration.seconds
+        let hasEnded = duration.isFinite && duration > 0 && position >= duration
+        let paused = hasRequestedPlayback && player.timeControlStatus == .paused && item.status == .readyToPlay && !hasEnded
+        // Initial startup remains automatic. Once the user pauses, retain the
+        // larger target for this episode so resuming does not shrink the reserve.
+        if paused { didRequestLongBuffer = true }
+        let preferred = didRequestLongBuffer ? PauseBufferPolicy.requestedSeconds(at: position, duration: duration) : 0
+        if item.preferredForwardBufferDuration != preferred { item.preferredForwardBufferDuration = preferred }
+        bufferBadge.isHidden = !paused
+        guard paused else { return }
+        let ahead = PauseBufferPolicy.bufferedSecondsAhead(at: position, ranges: item.loadedTimeRanges.map(\.timeRangeValue))
+        let seconds = Int(min(ahead, Double(Int.max / 2)))
+        let target = Int(preferred)
+        bufferLabel.text = String(format: "Завантажено наперед: %d:%02d · ціль %d:%02d", seconds / 60, seconds % 60, target / 60, target % 60)
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -110,6 +201,9 @@ final class NativePlayerHost: UIViewController, @preconcurrency AVPlayerViewCont
         onClose = nil
         onPresent = nil
         itemObservation = nil
+        playbackObservation = nil
+        bufferObservation = nil
+        timeJumpObservation = nil
         playback.delegate = nil
         playback.player = nil
         playback.dismiss(animated: false)
@@ -124,5 +218,33 @@ final class NativePlayerHost: UIViewController, @preconcurrency AVPlayerViewCont
         if playback.presentingViewController == nil {
             present(playback, animated: true) { completionHandler(true) }
         } else { completionHandler(true) }
+    }
+}
+
+enum PauseBufferPolicy {
+    static let targetSeconds: TimeInterval = 10 * 60
+
+    static func requestedSeconds(at position: TimeInterval, duration: TimeInterval) -> TimeInterval {
+        guard position.isFinite, position >= 0, duration.isFinite, duration > 0 else { return targetSeconds }
+        return min(targetSeconds, max(0, duration - position))
+    }
+
+    /// Only count continuous playable data from the current position, not
+    /// disconnected ranges left over after seeking to a different scene.
+    static func bufferedSecondsAhead(at position: TimeInterval, ranges: [CMTimeRange]) -> TimeInterval {
+        guard position.isFinite, position >= 0 else { return 0 }
+        let intervals = ranges.compactMap { range -> (start: Double, end: Double)? in
+            let start = range.start.seconds
+            let end = CMTimeRangeGetEnd(range).seconds
+            guard start.isFinite, end.isFinite, end >= start else { return nil }
+            return (start, end)
+        }.sorted { $0.start < $1.start }
+        var end = position
+        for interval in intervals {
+            if interval.end <= end { continue }
+            guard interval.start <= end + 0.05 else { break }
+            end = interval.end
+        }
+        return max(0, end - position)
     }
 }

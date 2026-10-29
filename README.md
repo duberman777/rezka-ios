@@ -104,3 +104,7 @@ HDRezka app, HDRezka client, HDRezka iOS, HDRezka iPhone, Rezka IPA, watch films
 ## Known limits
 
 The website can change its layout or its video encoding at any time, which can break parts of the app until it is updated. Separate subtitle files from the website are not shown. Only subtitles built into the video are available in the player.
+
+## Buffering while paused
+
+Pausing after playback has been requested asks AVPlayer to buffer up to ten minutes ahead, capped at the remaining episode duration. A badge shows the actual contiguous buffered time while paused. Initial startup stays automatic; after a pause the larger target is retained for the current episode. This is a preferred buffer size, not a guarantee that iOS will download the requested amount. Buffering and overlay layout still need on-device validation.
