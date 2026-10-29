@@ -95,9 +95,10 @@ struct DetailView: View {
     @State private var isLoadingEpisodes = false
     @State private var episodeError: String?
     @State private var isResolvingPlayback = false
-    @State private var startupBeganAt: ContinuousClock.Instant?
     @State private var playbackSource: PlaybackSource?
     @State private var playbackRequest: PlaybackRequest?
+    @State private var websitePlaybackURL: URL?
+    @State private var websiteStartOver = false
     @State private var expandedSynopsis = false
     @State private var expandedLinkSections: Set<String> = []
     @State private var isPastHero = false
@@ -260,8 +261,10 @@ struct DetailView: View {
                 episodeID = episode
             }
         }) {
-            if let playbackSource {
-                PlayerView(item: currentItem, source: playbackSource, preferredQuality: model.preferredQuality, request: playbackRequest, seasons: seasons, startupBeganAt: startupBeganAt,
+            if let websitePlaybackURL, let playbackRequest {
+                WebsitePlayerView(item: currentItem, pageURL: websitePlaybackURL, request: playbackRequest, startOver: websiteStartOver)
+            } else if let playbackSource {
+                PlayerView(item: currentItem, source: playbackSource, preferredQuality: model.preferredQuality, request: playbackRequest, seasons: seasons,
                            onFailure: {
                                detailError = $0
                                if let playbackRequest {
@@ -274,7 +277,7 @@ struct DetailView: View {
         .task(id: item.id) { await loadDetails() }
         .task(id: translatorID) { await loadEpisodes() }
         .task(id: selectedRequest) {
-            guard let request = selectedRequest, !translatorID.isEmpty,
+            guard model.playbackEngine == "native", let request = selectedRequest, !translatorID.isEmpty,
                   currentItem.rezka?.isSeries != true || (request.season != nil && request.episode != nil) else { return }
             await model.contentSource.preparePlayback(request: request)
         }
@@ -497,8 +500,17 @@ struct DetailView: View {
     private func play(startOver: Bool = false) async {
         model.errorMessage = nil
         isResolvingPlayback = true
-        startupBeganAt = ContinuousClock.now
         defer { isResolvingPlayback = false }
+        websitePlaybackURL = nil
+        if model.playbackEngine == "website", currentItem.streamURL == nil, let request = selectedRequest,
+           let pageURL = currentItem.rezka?.pageURL {
+            websiteStartOver = startOver
+            playbackRequest = request
+            playbackSource = nil
+            websitePlaybackURL = pageURL
+            showingPlayer = true
+            return
+        }
         // Another device may have saved a later position since this one last synced.
         async let cloudRefresh: Void = startOver ? () : model.refreshCloudHistory()
         do {
@@ -539,12 +551,13 @@ struct DetailView: View {
                         }
                     }
                     .pickerStyle(.menu)
+                    .disabled(model.playbackEngine == "website")
                     .tint(.white)
                     .sensoryFeedback(.selection, trigger: model.preferredQuality)
                 }
                 .frame(minHeight: 48)
-                if model.preferredQuality == "Auto" {
-                    Text("Auto: до 1080p для швидшого запуску")
+                if model.playbackEngine == "website" {
+                    Text("Якість та буферизація налаштовуються у вебплеєрі сайту.")
                         .font(.caption).foregroundStyle(AppColors.secondaryText)
                 }
                 Divider().overlay(.white.opacity(0.04))

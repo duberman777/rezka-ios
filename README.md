@@ -20,7 +20,7 @@ This project is only a client. It does not host, upload, store or distribute any
 - **Search** in Latin or Cyrillic.
 - **Title pages** with poster, rating, description, cast, comments, franchises and related titles.
 - **Choose** the voice-over (translation), season, episode and video quality before you press play.
-- **Watch** in the standard iPhone player, with AirPlay, Picture in Picture, playback speed and full screen.
+- **Watch** with the website’s own player inside WebKit, or select the native iPhone player in Settings. Offline videos use the native player.
 - **Continue watching** from exactly where you stopped. Each episode remembers its own position.
 - **Autoplay** the next episode after a short countdown, even across seasons. You can turn it off.
 - **Download** films and episodes to watch offline.
@@ -107,10 +107,12 @@ The website can change its layout or its video encoding at any time, which can b
 
 ## Buffering while paused
 
-Pausing after playback has been requested asks AVPlayer to buffer up to ten minutes ahead, capped at the remaining episode duration. A badge shows the actual contiguous buffered time while paused. Initial startup uses a small buffer; after a pause the larger target is retained for the current episode. This is a preferred buffer size, not a guarantee that iOS will download the requested amount. Buffering and overlay layout still need on-device validation.
+Pausing after playback has been requested asks AVPlayer to buffer up to ten minutes ahead, capped at the remaining episode duration. A badge shows the actual contiguous buffered time while paused. Initial startup stays automatic; after a pause the larger target is retained for the current episode. This is a preferred buffer size, not a guarantee that iOS will download the requested amount. Buffering and overlay layout still need on-device validation.
 
-## Playback startup
+## Website player (default)
 
-The player is constructed once per playback lifecycle rather than in SwiftUI View.init. Auto selects up to 1080p (and can fall back to a lower quality if startup fails); explicit quality choices remain respected. Initial buffering requests three seconds, and a prepared frame plus one second of contiguous video can bypass conservative startup waiting. Automatic stall recovery stays enabled. After playback begins, normal automatic buffering resumes unless a pause has requested the longer forward buffer.
+Online Play opens the actual title page in WKWebView and lets the website resolve and play its video. It does not ask the native stream service for a URL first, wait for a cloud-history refresh, or use the experimental startup timer. Quality, buffering, subtitles and autoplay are controlled by the website. Settings → Playback can switch back to the native player; downloaded files always use native playback.
 
-Alternate URLs are tried if no frame begins playing within eight seconds. New episodes start without a redundant seek to zero; saved playback positions retain exact seeking. Settings displays the measured time from Play to a ready frame during playback. These startup changes still require iOS compilation, XCTest execution and device timing measurements.
+The web view shares the app’s persistent WebKit website data, copies matching HTTP cookies, and keeps the website’s real controls and page visible. You may need to press Play in the page. Selection and progress integration uses the current website DOM selectors. Accessible main-page HTML video can restore and record episode progress, including fractional seconds, without reloading the page on history updates. Third-party iframes and changed website markup may prevent the app from observing progress; in that case the website’s own history/controls remain available. Native-only pause-buffer controls do not apply to the website player.
+
+The experimental v6 startup changes have been reverted. Browser-script tests can be run with `node scripts/test-website-player.cjs`. iOS compilation, XCTest and real-site/device verification of the web mode are still required. No speed improvement is claimed before measurement on the same title, mirror and network.

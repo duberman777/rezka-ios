@@ -3,22 +3,6 @@ import XCTest
 @testable import RezkaPort
 
 final class WatchRecordSyncTests: XCTestCase {
-    func testAutoStartupDoesNotSelect4KButManualChoiceIsPreserved() throws {
-        func stream(_ quality: String) -> VideoStream {
-            VideoStream(quality: quality, url: URL(string: "https://cdn.test/\(quality).m3u8")!)
-        }
-        let streams = [stream("2160p"), stream("1440p"), stream("1080p"), stream("720p")]
-        XCTAssertEqual(PlaybackStartupPolicy.stream(in: streams, preferredQuality: "Auto")?.quality, "1080p")
-        XCTAssertEqual(PlaybackStartupPolicy.stream(in: streams, preferredQuality: "2160p")?.quality, "2160p")
-        XCTAssertEqual(PlaybackStartupPolicy.stream(in: streams, preferredQuality: "720p")?.quality, "720p")
-        XCTAssertEqual(PlaybackStartupPolicy.stream(in: [stream("2160p"), stream("1440p")], preferredQuality: "Auto")?.quality, "1440p")
-        XCTAssertEqual(PlaybackStartupPolicy.stream(in: [stream("480p"), stream("720p")], preferredQuality: "Auto")?.quality, "720p")
-        XCTAssertNil(PlaybackStartupPolicy.stream(in: [], preferredQuality: "Auto"))
-        XCTAssertEqual(PlaybackStartupPolicy.lowerStream(in: streams, currentQuality: "1080p", preferredQuality: "Auto")?.quality, "720p")
-        XCTAssertNil(PlaybackStartupPolicy.lowerStream(in: streams, currentQuality: "1080p", preferredQuality: "1080p"))
-        XCTAssertNil(PlaybackStartupPolicy.lowerStream(in: streams, currentQuality: "720p", preferredQuality: "Auto"))
-    }
-
     private func decodeHistory(_ json: String) throws -> [WatchRecord] {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .millisecondsSince1970

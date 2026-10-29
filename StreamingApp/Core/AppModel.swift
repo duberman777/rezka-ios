@@ -30,7 +30,9 @@ final class AppModel {
     private(set) var favoriteIDs: Set<String>
     private(set) var history: [WatchRecord]
     private(set) var episodeHistory: [String: WatchRecord]
-    private(set) var lastPlaybackStartup: String?
+    var playbackEngine: String {
+        didSet { defaults.set(playbackEngine, forKey: "playbackEngine") }
+    }
     private(set) var downloadedItems: [MediaItem]
     private(set) var recentSearches: [String]
     var preferredQuality: String {
@@ -74,6 +76,12 @@ final class AppModel {
         favoriteIDs = Set(Self.decode([String].self, key: "favoriteIDs", defaults: defaults) ?? [])
         history = Self.decode([WatchRecord].self, key: "watchHistory", defaults: defaults) ?? []
         episodeHistory = Self.decode([String: WatchRecord].self, key: "episodeHistory", defaults: defaults) ?? [:]
+        #if DEBUG
+        playbackEngine = ProcessInfo.processInfo.arguments.contains("--rezka-ui-fixtures") ? "native"
+            : (defaults.string(forKey: "playbackEngine") == "native" ? "native" : "website")
+        #else
+        playbackEngine = defaults.string(forKey: "playbackEngine") == "native" ? "native" : "website"
+        #endif
         downloadedItems = Self.decode([MediaItem].self, key: "downloadedItems", defaults: defaults) ?? []
         recentSearches = Self.decode([String].self, key: "recentSearches", defaults: defaults) ?? []
         preferredQuality = defaults.string(forKey: "preferredQuality") ?? "Auto"
@@ -296,12 +304,6 @@ final class AppModel {
         }
         persist(history, key: "watchHistory")
         watchSync.schedule(records: cloudHistoryRecords)
-    }
-
-    func recordPlaybackStartup(since start: ContinuousClock.Instant, quality: String) {
-        let elapsed = start.duration(to: ContinuousClock.now).components
-        let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
-        lastPlaybackStartup = String(format: "%.1f с · %@", max(0, seconds), quality)
     }
 
     func recordStart(_ item: MediaItem) {

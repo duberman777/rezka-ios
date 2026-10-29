@@ -37,6 +37,14 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(AppColors.secondaryText)
             }
             Section("Playback") {
+                Picker("Плеєр", selection: Binding(get: { model.playbackEngine }, set: { model.playbackEngine = $0 })) {
+                    Text("Вебплеєр сайту").tag("website")
+                    Text("Системний AVPlayer").tag("native")
+                }
+                Text(model.playbackEngine == "website"
+                     ? "Відкривається справжня сторінка сайту. Якість, буферизація й автоматичний перехід між серіями керуються її плеєром."
+                     : "Відеопосилання відкривається у системному плеєрі iPhone.")
+                    .font(.caption).foregroundStyle(AppColors.secondaryText)
                 Picker("Default quality", selection: Binding(
                     get: { model.preferredQuality },
                     set: { model.preferredQuality = $0 }
@@ -46,19 +54,13 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
-
-                Text("Auto обирає якість до 1080p для швидшого запуску. Вищу якість можна вибрати вручну.")
-                    .font(.caption).foregroundStyle(AppColors.secondaryText)
-                if let last = model.lastPlaybackStartup {
-                    LabeledContent("Останній успішний запуск", value: last)
-                    Text("Час від натискання Play до першого кадру під час відтворення.")
-                        .font(.caption).foregroundStyle(AppColors.secondaryText)
-                }
+                .disabled(model.playbackEngine == "website")
 
                 Toggle("Auto play next episode", isOn: Binding(
                     get: { model.autoPlayNext },
                     set: { model.autoPlayNext = $0 }
                 ))
+                .disabled(model.playbackEngine == "website")
 
                 NavigationLink {
                     HistoryView()

@@ -5,13 +5,28 @@ import XCTest
 
 @MainActor
 final class PlaybackHistoryTests: XCTestCase {
-    func testRepeatedViewAccessConstructsOnlyOnePlayer() {
-        let lifecycle = PlaybackLifecycle()
-        var creations = 0
-        let first = lifecycle.player { creations += 1; return AVPlayer() }
-        let second = lifecycle.player { creations += 1; return AVPlayer() }
-        XCTAssertTrue(first === second)
-        XCTAssertEqual(creations, 1)
+    func testWebsiteEngineIsDefaultAndNativeFallbackPersists() throws {
+        let suite = "RezkaEngineTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = AppModel(defaults: defaults)
+        XCTAssertEqual(model.playbackEngine, "website")
+        model.playbackEngine = "native"
+        XCTAssertEqual(AppModel(defaults: defaults).playbackEngine, "native")
+    }
+
+    func testWebsiteProgressRejectsInvalidTimesAndKeepsEpisodeIdentity() throws {
+        let checkpoint = try XCTUnwrap(WebsiteCheckpoint(["position": 754.25, "duration": 2400.0, "season": "2", "episode": "3", "translator": "7"]))
+        XCTAssertEqual(checkpoint.position, 754.25)
+        XCTAssertEqual(checkpoint.season, "2")
+        XCTAssertEqual(checkpoint.episode, "3")
+        XCTAssertNil(WebsiteCheckpoint(["position": Double.nan, "duration": 2400.0]))
+        XCTAssertNil(WebsiteCheckpoint(["position": -1.0, "duration": 2400.0]))
+        XCTAssertNil(WebsiteCheckpoint(["position": 2500.0, "duration": 2400.0]))
+        XCTAssertNil(WebsiteCheckpoint(["position": 5.0, "duration": Double.infinity]))
+        let movie = try XCTUnwrap(WebsiteCheckpoint(["position": 5.0, "duration": 600.0, "season": "", "episode": ""]))
+        XCTAssertNil(movie.season)
+        XCTAssertNil(movie.episode)
     }
 
     func testPauseBufferTargetIsTenMinutesOrRemainingEpisodeDuration() {
