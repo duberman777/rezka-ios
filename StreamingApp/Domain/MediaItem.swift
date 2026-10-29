@@ -69,13 +69,19 @@ struct WatchRecord: Identifiable, Codable, Hashable, Sendable {
         return max(Int((duration - position) / 60), 0)
     }
 
+    var positionLabel: String {
+        guard position.isFinite, position > 0 else { return "0:00" }
+        let seconds = Int(min(position, Double(Int.max / 2)))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+
     func resumePosition(for request: PlaybackRequest?) -> TimeInterval? {
         guard position.isFinite, position > 0, seasonID == request?.season, episodeID == request?.episode else { return nil }
         return position
     }
 }
 
-struct PlaybackRequest: Sendable {
+struct PlaybackRequest: Hashable, Sendable {
     var mediaID: String
     var translatorID: String? = nil
     var season: String? = nil

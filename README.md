@@ -45,7 +45,9 @@ The app works like a web browser that understands the HDRezka pages:
 3. **Getting the video.** When you press play, the app asks the website for the video links, in the same way the website's own player does. The website hides those links in an encoded form. The app decodes them and passes the video to the iPhone player.
 4. **Website checks.** Sometimes the website shows a "checking your browser" page. The app then opens that page in a small browser window so you can complete it. After that it continues normally.
 
-Your progress is saved every few seconds while you watch, and when you pause or close the player.
+Your progress is saved every second while you watch, when you pause or leave the app, and when you close the player. Each episode shows its saved position in minutes and seconds.
+
+While a title page is open, the selected playback link is prepared in the background. Only the small playback response is fetched; video data is not downloaded. Prepared links are kept briefly in memory, separately for each episode, translation and active mirror. Browser verification remains an interactive step after you press play.
 
 ## Install
 

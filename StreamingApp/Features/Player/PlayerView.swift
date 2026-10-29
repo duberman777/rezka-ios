@@ -1,4 +1,5 @@
 import AVKit
+import Combine
 import SwiftUI
 
 struct PlayerView: View {
@@ -11,7 +12,8 @@ struct PlayerView: View {
     @State private var pendingSeek: TimeInterval?
     @State private var isRestoringPosition = false
     @State private var hasStarted = false
-    @State private var progressTask: Task<Void, Never>?
+    @State private var lifecycle = PlaybackLifecycle()
+    @State private var itemObservation: AnyCancellable?
     @State private var readyTask: Task<Void, Never>?
     @State private var autoplayTask: Task<Void, Never>?
     @State private var source: PlaybackSource
@@ -42,6 +44,9 @@ struct PlayerView: View {
             .background(Color.black.ignoresSafeArea())
             .statusBarHidden()
             .onChange(of: scenePhase) { if scenePhase != .active { saveProgress() } }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+                saveProgress()
+            }
             .onReceive(player.publisher(for: \.timeControlStatus)) { status in
                 if status == .paused { saveProgress() }
             }
@@ -100,7 +105,7 @@ struct PlayerView: View {
             }
             #endif
             observeCurrentItem()
-            player.playImmediately(atRate: player.defaultRate)
+            // Wait for the seek to finish before advancing the new episode.
         } catch is CancellationError { }
         catch { failPlayback(error.localizedDescription) }
     }
@@ -130,38 +135,56 @@ struct PlayerView: View {
         } catch { failPlayback("Audio playback could not be started."); return }
         player.allowsExternalPlayback = true
         observeCurrentItem()
-        progressTask = Task { @MainActor in
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(5)) } catch { return }
-                saveProgress()
-            }
+        lifecycle.progressObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 600), queue: .main) { _ in
+            MainActor.assumeIsolated { saveProgress() }
         }
-        player.play()
+        if pendingSeek == nil { player.play() }
     }
 
     private func observeCurrentItem() {
         readyTask?.cancel()
+        readyTask = nil
+        itemObservation?.cancel()
         guard let currentItem = player.currentItem else { return }
-        readyTask = Task { @MainActor in
-            for await status in currentItem.publisher(for: \.status).values {
-                if Task.isCancelled { return }
-                if status == .failed { useAlternative(); return }
-                if status == .readyToPlay, let position = pendingSeek {
-                    pendingSeek = nil
-                    await player.seek(to: CMTime(seconds: position, preferredTimescale: 600), toleranceBefore: CMTime(seconds: 3, preferredTimescale: 600), toleranceAfter: .zero)
-                    guard !Task.isCancelled else { return }
-                    isRestoringPosition = false
-                    player.playImmediately(atRate: player.defaultRate)
-                }
+        // Keep a synchronous subscription: AsyncPublisher can miss a status
+        // change while its consumer is suspended (for example during a seek).
+        itemObservation = currentItem.publisher(for: \.status)
+            .receive(on: RunLoop.main)
+            .sink { _ in
+                MainActor.assumeIsolated { handleItemStatus(currentItem) }
             }
+        handleItemStatus(currentItem)
+    }
+
+    private func handleItemStatus(_ currentItem: AVPlayerItem) {
+        guard !lifecycle.isStopped, player.currentItem === currentItem else { return }
+        if currentItem.status == .failed { useAlternative(); return }
+        guard currentItem.status == .readyToPlay, let position = pendingSeek, readyTask == nil else { return }
+        readyTask = Task { @MainActor in
+            let restored = await player.seek(to: CMTime(seconds: position, preferredTimescale: 600),
+                                             toleranceBefore: .zero, toleranceAfter: .zero)
+            guard !Task.isCancelled, !lifecycle.isStopped, player.currentItem === currentItem else { return }
+            readyTask = nil
+            guard restored else {
+                // Retain the saved point if AVPlayer interrupts the seek.
+                useAlternative()
+                return
+            }
+            pendingSeek = nil
+            isRestoringPosition = false
+            player.playImmediately(atRate: player.defaultRate)
         }
     }
 
-    private func saveProgress() {
+    private var canSaveProgress: Bool {
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("--rezka-ui-fixtures") { return }
+        if ProcessInfo.processInfo.arguments.contains("--rezka-ui-fixtures") { return false }
         #endif
-        guard hasStarted, !isRestoringPosition, !isFinished else { return }
+        return hasStarted && !isRestoringPosition && !isFinished
+    }
+
+    private func saveProgress() {
+        guard canSaveProgress, !lifecycle.isStopped else { return }
         model.recordProgress(for: item, position: player.currentTime().seconds,
                              duration: player.currentItem?.duration.seconds ?? 0, request: request)
     }
@@ -172,8 +195,22 @@ struct PlayerView: View {
     }
 
     private func stopPlayback() {
-        // Dismantling the host must not write to SwiftUI state or observable models.
-        progressTask?.cancel()
+        guard lifecycle.stop(player: player) else { return }
+        // Capture before AVKit releases the item. Defer the model write until
+        // after SwiftUI dismantles the host, without reading player state later.
+        if canSaveProgress {
+            let position = player.currentTime().seconds
+            let duration = player.currentItem?.duration.seconds ?? 0
+            let stoppedRequest = request
+            let stoppedItem = item
+            let recordedAt = Date.now
+            let savedModel = model
+            Task { @MainActor in
+                savedModel.recordProgress(for: stoppedItem, position: position, duration: duration,
+                                          request: stoppedRequest, recordedAt: recordedAt)
+            }
+        }
+        itemObservation?.cancel()
         readyTask?.cancel()
         autoplayTask?.cancel()
         player.pause()
@@ -182,10 +219,16 @@ struct PlayerView: View {
 
     private func replaceURL(_ url: URL) {
         let position = player.currentTime().seconds
-        if position.isFinite, position > 0 { pendingSeek = position; isRestoringPosition = true }
+        // A failed stream may still report zero during the initial restore.
+        // Never replace the original saved point with that temporary value.
+        if !isRestoringPosition, position.isFinite, position > 0 {
+            pendingSeek = position
+            isRestoringPosition = true
+        }
+        player.pause()
         player.replaceCurrentItem(with: Self.playerItem(url: url, headers: source.headers, title: item.title, request: request))
         observeCurrentItem()
-        player.playImmediately(atRate: player.defaultRate)
+        if pendingSeek == nil { player.playImmediately(atRate: player.defaultRate) }
     }
 
     private func useAlternative() {
@@ -225,5 +268,24 @@ struct PlayerView: View {
             item.externalMetadata.append(subtitle)
         }
         return item
+    }
+}
+
+/// Reference storage allows idempotent cleanup during SwiftUI dismantling
+/// without mutating @State or an observable model inside that callback.
+@MainActor
+final class PlaybackLifecycle {
+    var progressObserver: Any?
+    private(set) var isStopped = false
+
+    @discardableResult
+    func stop(player: AVPlayer) -> Bool {
+        guard !isStopped else { return false }
+        isStopped = true
+        if let progressObserver {
+            player.removeTimeObserver(progressObserver)
+            self.progressObserver = nil
+        }
+        return true
     }
 }

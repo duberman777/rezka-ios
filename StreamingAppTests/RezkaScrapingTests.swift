@@ -252,6 +252,86 @@ final class RezkaScrapingTests: XCTestCase {
         XCTAssertEqual(Fixtures.form(requests[0])["episode"], "3")
     }
 
+    func testPreparedPlaybackAvoidsAnExtraRequestAndInvalidatesOnFailure() async throws {
+        let stream = #"{"success":true,"url":"[720p]https://cdn.test/video.m3u8"}"#
+        let transport = StubTransport(responses: [
+            Fixtures.response(Fixtures.catalogue, base), Fixtures.response(Fixtures.details, base),
+            Fixtures.response(stream, base), Fixtures.response(stream, base)
+        ])
+        let client = RezkaHttpClient(transport: transport)
+        let suite = "rezka.prefetch.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(base.absoluteString, forKey: "rezka.activeMirror")
+        let source = RezkaContentSource(client: client, mirrors: RezkaMirrorManager(client: client, defaults: defaults))
+        let catalogue = try await source.catalogue()
+        _ = try await source.details(item: XCTUnwrap(catalogue.items.first))
+        let request = PlaybackRequest(mediaID: "42", translatorID: "7")
+        await source.preparePlayback(request: request)
+        let preparedRequests = await transport.requests
+        XCTAssertEqual(preparedRequests.count, 3)
+        XCTAssertEqual(preparedRequests.last?.timeoutInterval, 8)
+        let result = try await source.playback(request: request)
+        XCTAssertEqual(result.streams.first?.quality, "720p")
+        let afterPlay = await transport.requests
+        XCTAssertEqual(afterPlay.count, 3)
+        await source.invalidatePreparedPlayback(request: request)
+        _ = try await source.playback(request: request)
+        let afterInvalidation = await transport.requests
+        XCTAssertEqual(afterInvalidation.count, 4)
+    }
+
+    func testPreparationCannotOpenBrowserAndPlayCanRetryInteractively() async throws {
+        let stream = #"{"success":true,"url":"[720p]https://cdn.test/video.m3u8"}"#
+        let transport = StubTransport(responses: [
+            Fixtures.response(Fixtures.catalogue, base), Fixtures.response(Fixtures.details, base),
+            Fixtures.response("Just a moment", base, status: 403),
+            Fixtures.response("Just a moment", base, status: 403)
+        ])
+        let browserCalls = BrowserCallCounter()
+        let client = RezkaHttpClient(transport: transport, browserFetch: { request in
+            browserCalls.count += 1
+            return Fixtures.response(stream, request.url!)
+        })
+        let suite = "rezka.prefetch.challenge.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(base.absoluteString, forKey: "rezka.activeMirror")
+        let source = RezkaContentSource(client: client, mirrors: RezkaMirrorManager(client: client, defaults: defaults))
+        let catalogue = try await source.catalogue()
+        _ = try await source.details(item: XCTUnwrap(catalogue.items.first))
+        let request = PlaybackRequest(mediaID: "42", translatorID: "7")
+        await source.preparePlayback(request: request)
+        XCTAssertEqual(browserCalls.count, 0)
+        _ = try await source.playback(request: request)
+        XCTAssertEqual(browserCalls.count, 1)
+    }
+
+    func testPreparedLinkIsNotReusedAfterChangingMirror() async throws {
+        let replacement = URL(string: "https://replacement.test/")!
+        let transport = StubTransport(responses: [
+            Fixtures.response(Fixtures.catalogue, base), Fixtures.response(Fixtures.details, base),
+            Fixtures.response(#"{"success":true,"url":"[720p]https://cdn.test/old.m3u8"}"#, base),
+            Fixtures.response(#"{"success":true,"url":"[720p]https://cdn.test/new.m3u8"}"#, replacement)
+        ])
+        let client = RezkaHttpClient(transport: transport)
+        let suite = "rezka.prefetch.mirror.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(base.absoluteString, forKey: "rezka.activeMirror")
+        let mirrors = RezkaMirrorManager(client: client, defaults: defaults)
+        let source = RezkaContentSource(client: client, mirrors: mirrors)
+        let catalogue = try await source.catalogue()
+        _ = try await source.details(item: XCTUnwrap(catalogue.items.first))
+        let request = PlaybackRequest(mediaID: "42", translatorID: "7")
+        await source.preparePlayback(request: request)
+        try await mirrors.select(replacement.absoluteString)
+        let result = try await source.playback(request: request)
+        XCTAssertEqual(result.streams.first?.url.lastPathComponent, "new.m3u8")
+        let requests = await transport.requests
+        XCTAssertEqual(requests.last?.url?.host, replacement.host)
+    }
+
     func testSeriesWithoutEpisodeDoesNotSendRequest() async {
         let transport = StubTransport(responses: [])
         let media = RezkaMedia(movieID: "43", pageURL: base, isSeries: true, translators: [RezkaTranslator(id: "8", name: "Voice")])
@@ -399,6 +479,11 @@ final class RezkaScrapingTests: XCTestCase {
         XCTAssertEqual(fields["action"], "get_episodes")
         XCTAssertEqual(fields["translator_id"], "8")
     }
+}
+
+@MainActor
+private final class BrowserCallCounter {
+    var count = 0
 }
 
 private actor StubTransport: RezkaTransport {

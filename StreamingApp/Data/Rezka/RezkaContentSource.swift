@@ -5,6 +5,16 @@ actor RezkaContentSource: ContentSource {
     let mirrors: RezkaMirrorManager
     private let parser = RezkaPageParser()
     private var cache: [String: MediaItem] = [:]
+    private struct PlaybackKey: Hashable {
+        let request: PlaybackRequest
+        let mirror: URL
+    }
+    private struct PreparedPlayback {
+        let source: PlaybackSource
+        let expiresAt: ContinuousClock.Instant
+    }
+    private var preparedPlayback: [PlaybackKey: PreparedPlayback] = [:]
+    private var preparationTasks: [PlaybackKey: Task<PlaybackSource, Error>] = [:]
 
     init(client: RezkaHttpClient, mirrors: RezkaMirrorManager? = nil) {
         self.client = client
@@ -104,6 +114,69 @@ actor RezkaContentSource: ContentSource {
     }
 
     func playback(request: PlaybackRequest) async throws -> PlaybackSource {
+        try Task.checkCancellation()
+        let key = PlaybackKey(request: request, mirror: try await mirrors.activeURL())
+        prunePreparedPlayback()
+        if let prepared = preparedPlayback[key] { return prepared.source }
+        if let task = preparationTasks[key] {
+            do {
+                let source = try await task.value
+                try Task.checkCancellation()
+                return source
+            } catch {
+                try Task.checkCancellation()
+            }
+        }
+        try Task.checkCancellation()
+        // A failed background request is retried interactively, so a challenge
+        // can still be solved normally after the user explicitly presses Play.
+        return try await resolvePlayback(request: request)
+    }
+
+    /// Resolves only the selected episode's small AJAX response, not video bytes.
+    func preparePlayback(request: PlaybackRequest) async {
+        guard !Task.isCancelled, let item = cache[request.mediaID],
+              let media = item.rezka, !media.translators.isEmpty,
+              !media.isSeries || (request.season != nil && request.episode != nil),
+              let base = try? await mirrors.activeURL() else { return }
+        let key = PlaybackKey(request: request, mirror: base)
+        prunePreparedPlayback()
+        guard preparedPlayback[key] == nil, preparationTasks[key] == nil else { return }
+        // Limit speculative work during rapid episode/voice-over changes.
+        guard preparationTasks.count < 2 else { return }
+        let client = client
+        let mirrors = mirrors
+        let task = Task {
+            var rebasedMedia = media
+            rebasedMedia.pageURL = try await mirrors.rebased(media.pageURL, onto: base)
+            // Speculation never changes the active mirror. Foreground playback
+            // retains normal failover if this lightweight request fails.
+            return try await RezkaStreamService(client: client).playback(
+                request: request, media: rebasedMedia, baseURL: base, allowBrowser: false)
+        }
+        preparationTasks[key] = task
+        defer { preparationTasks[key] = nil }
+        guard let source = try? await task.value else { return }
+        preparedPlayback[key] = PreparedPlayback(source: source, expiresAt: ContinuousClock.now.advanced(by: .seconds(45)))
+        prunePreparedPlayback()
+    }
+
+    func invalidatePreparedPlayback(request: PlaybackRequest) {
+        for key in Array(preparedPlayback.keys) where key.request == request {
+            preparedPlayback[key] = nil
+        }
+    }
+
+    private func prunePreparedPlayback() {
+        let now = ContinuousClock.now
+        preparedPlayback = preparedPlayback.filter { $0.value.expiresAt > now }
+        while preparedPlayback.count > 4,
+              let oldest = preparedPlayback.min(by: { $0.value.expiresAt < $1.value.expiresAt })?.key {
+            preparedPlayback[oldest] = nil
+        }
+    }
+
+    private func resolvePlayback(request: PlaybackRequest, allowBrowser: Bool = true) async throws -> PlaybackSource {
         guard var item = cache[request.mediaID], item.rezka != nil else { throw ContentSourceError.missingMedia }
         if item.rezka?.translators.isEmpty == true { item = try await details(item: item) }
         guard let originalMedia = item.rezka else { throw ContentSourceError.missingMedia }
@@ -112,7 +185,7 @@ actor RezkaContentSource: ContentSource {
         return try await withMirror { base in
             var media = originalMedia
             media.pageURL = try await mirrors.rebased(media.pageURL, onto: base)
-            return try await RezkaStreamService(client: client).playback(request: request, media: media, baseURL: base)
+            return try await RezkaStreamService(client: client).playback(request: request, media: media, baseURL: base, allowBrowser: allowBrowser)
         }
     }
 

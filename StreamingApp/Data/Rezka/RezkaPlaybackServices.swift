@@ -64,7 +64,7 @@ struct RezkaStreamService: Sendable {
     let client: RezkaHttpClient
     let decoder = RezkaStreamDecoder()
 
-    func playback(request: PlaybackRequest, media: RezkaMedia, baseURL: URL) async throws -> PlaybackSource {
+    func playback(request: PlaybackRequest, media: RezkaMedia, baseURL: URL, allowBrowser: Bool = true) async throws -> PlaybackSource {
         let translators = media.playableTranslators
         guard let translatorID = request.translatorID ?? translators.first(where: \.isSelected)?.id ?? translators.first?.id,
               !media.translators.contains(where: { $0.id == translatorID && $0.isPremium }) else {
@@ -83,7 +83,11 @@ struct RezkaStreamService: Sendable {
             RezkaPlaybackDiagnostics.save(data, name: "playback-request.json")
         }
         #endif
-        let httpResponse = try await client.fetch(client.request(url: url, referer: media.pageURL, form: form))
+        var httpRequest = client.request(url: url, referer: media.pageURL, form: form)
+        // Speculative preparation must yield quickly on slow connections and
+        // must never present a browser verification screen before Play is tapped.
+        if !allowBrowser { httpRequest.timeoutInterval = 8 }
+        let httpResponse = try await client.fetch(httpRequest, allowBrowser: allowBrowser)
         #if DEBUG
         RezkaPlaybackDiagnostics.save(httpResponse.data, name: "playback-response.json")
         #endif

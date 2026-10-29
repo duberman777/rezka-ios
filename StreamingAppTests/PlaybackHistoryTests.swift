@@ -1,9 +1,71 @@
 #if os(iOS)
+import AVKit
 import XCTest
 @testable import RezkaPort
 
 @MainActor
 final class PlaybackHistoryTests: XCTestCase {
+    func testBackgroundCheckpointKeepsMinutesAndSecondsAfterRelaunch() throws {
+        let suite = "RezkaCheckpointTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let item = MediaItem(id: "42", title: "Series", kind: .series, genre: "Drama", synopsis: "", symbol: "tv", paletteIndex: 0)
+        let request = PlaybackRequest(mediaID: "42", season: "2", episode: "3")
+        let model = AppModel(defaults: defaults)
+        model.recordProgress(for: item, position: 754.25, duration: 2400, request: request)
+        // The final event between periodic observations must win.
+        model.recordProgress(for: item, position: 755.875, duration: .nan, request: request)
+        let relaunched = AppModel(defaults: defaults)
+        let record = try XCTUnwrap(relaunched.episodeRecord(mediaID: "42", season: "2", episode: "3"))
+        XCTAssertEqual(record.resumePosition(for: request), 755.875)
+        XCTAssertEqual(record.positionLabel, "12:35")
+        XCTAssertEqual(record.duration, 2400)
+        XCTAssertNil(record.resumePosition(for: PlaybackRequest(mediaID: "42", season: "2", episode: "4")))
+    }
+
+    func testDelayedTeardownCannotOverwriteNewerPositionOrEpisode() throws {
+        let suite = "RezkaDelayedCheckpointTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let item = MediaItem(id: "42", title: "Series", kind: .series, genre: "Drama", synopsis: "", symbol: "tv", paletteIndex: 0)
+        let episode3 = PlaybackRequest(mediaID: "42", season: "2", episode: "3")
+        let episode4 = PlaybackRequest(mediaID: "42", season: "2", episode: "4")
+        let model = AppModel(defaults: defaults)
+        let oldTime = Date(timeIntervalSince1970: 100)
+        let newTime = Date(timeIntervalSince1970: 200)
+        model.recordProgress(for: item, position: 755.875, duration: 2400, request: episode3, recordedAt: newTime)
+        model.recordProgress(for: item, position: 12, duration: 2400, request: episode3, recordedAt: oldTime)
+        XCTAssertEqual(model.history.first?.position, 755.875)
+        model.recordProgress(for: item, position: 30, duration: 2400, request: episode4, recordedAt: newTime)
+        model.recordProgress(for: item, position: 755, duration: 2400, request: episode3, recordedAt: oldTime)
+        let relaunched = AppModel(defaults: defaults)
+        XCTAssertEqual(relaunched.history.first?.episodeID, "4")
+        XCTAssertEqual(relaunched.history.first?.position, 30)
+        XCTAssertEqual(relaunched.episodeRecord(mediaID: "42", season: "2", episode: "3")?.position, 755.875)
+    }
+
+    func testUnknownDurationUsesTheSelectedEpisodesSavedDuration() throws {
+        let suite = "RezkaEpisodeDurationTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let item = MediaItem(id: "42", title: "Series", kind: .series, genre: "Drama", synopsis: "", symbol: "tv", paletteIndex: 0)
+        let model = AppModel(defaults: defaults)
+        let episode3 = PlaybackRequest(mediaID: "42", season: "2", episode: "3")
+        model.recordProgress(for: item, position: 755, duration: 2400, request: episode3)
+        model.recordProgress(for: item, position: 30, duration: 1800, request: PlaybackRequest(mediaID: "42", season: "2", episode: "4"))
+        model.recordProgress(for: item, position: 756, duration: .nan, request: episode3)
+        XCTAssertEqual(model.history.first?.duration, 2400)
+    }
+
+    func testPlayerCleanupIsSafeWhenCloseAndDismantleBothRun() {
+        let lifecycle = PlaybackLifecycle()
+        let player = AVPlayer()
+        lifecycle.progressObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 600), queue: .main) { _ in }
+        XCTAssertTrue(lifecycle.stop(player: player))
+        XCTAssertNil(lifecycle.progressObserver)
+        XCTAssertFalse(lifecycle.stop(player: player))
+    }
+
     func testCountryExclusionsPersistAndKeepSavedTitlesAvailable() throws {
         let suite = "RezkaCountryTests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

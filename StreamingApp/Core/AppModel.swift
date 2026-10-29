@@ -269,11 +269,20 @@ final class AppModel {
         persist(customItems, key: "customItems")
     }
 
-    func recordProgress(for item: MediaItem, position: TimeInterval, duration: TimeInterval, request: PlaybackRequest? = nil) {
+    func recordProgress(for item: MediaItem, position: TimeInterval, duration: TimeInterval, request: PlaybackRequest? = nil, recordedAt: Date = .now) {
         guard position.isFinite, position >= 0 else { return }
-        let previous = history.first(where: { $0.item.id == item.id && $0.seasonID == request?.season && $0.episodeID == request?.episode })
+        let latest = history.first(where: { $0.item.id == item.id })
+        let previous: WatchRecord?
+        if let season = request?.season, let episode = request?.episode {
+            previous = episodeRecord(mediaID: item.id, season: season, episode: episode)
+        } else {
+            previous = latest.flatMap { $0.seasonID == nil && $0.episodeID == nil ? $0 : nil }
+        }
+        // A final checkpoint may arrive after a newly opened player has saved.
+        guard previous.map({ $0.updatedAt <= recordedAt }) ?? true,
+              latest.map({ $0.updatedAt <= recordedAt }) ?? true else { return }
         let knownDuration = duration.isFinite && duration > 0 ? duration : previous?.duration ?? 0
-        let record = WatchRecord(item: item, position: position, duration: knownDuration, updatedAt: .now,
+        let record = WatchRecord(item: item, position: position, duration: knownDuration, updatedAt: recordedAt,
                                  translatorID: request?.translatorID, seasonID: request?.season, episodeID: request?.episode)
         if let season = request?.season, let episode = request?.episode {
             episodeHistory[episodeKey(item.id, season, episode)] = record

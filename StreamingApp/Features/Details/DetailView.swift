@@ -261,12 +261,22 @@ struct DetailView: View {
         }) {
             if let playbackSource {
                 PlayerView(item: currentItem, source: playbackSource, preferredQuality: model.preferredQuality, request: playbackRequest, seasons: seasons,
-                           onFailure: { detailError = $0 })
+                           onFailure: {
+                               detailError = $0
+                               if let playbackRequest {
+                                   Task { await model.contentSource.invalidatePreparedPlayback(request: playbackRequest) }
+                               }
+                           })
             }
         }
         .appErrorAlert()
         .task(id: item.id) { await loadDetails() }
         .task(id: translatorID) { await loadEpisodes() }
+        .task(id: selectedRequest) {
+            guard let request = selectedRequest, !translatorID.isEmpty,
+                  currentItem.rezka?.isSeries != true || (request.season != nil && request.episode != nil) else { return }
+            await model.contentSource.preparePlayback(request: request)
+        }
     }
 
     private func hero(height: CGFloat) -> some View {
@@ -384,10 +394,12 @@ struct DetailView: View {
         if isResolvingPlayback { return "Loading video" }
         let request = currentItem.rezka == nil ? nil : PlaybackRequest(mediaID: currentItem.id,
             translatorID: translatorID.nonEmpty, season: seasonID.nonEmpty, episode: episodeID.nonEmpty)
-        if let position = model.history.first(where: { $0.item.id == item.id })?.resumePosition(for: request) {
-            if let season = request?.season, let episode = request?.episode { return "Resume S\(season) E\(episode)" }
-            let seconds = Int(position)
-            return String(format: "Resume from %d:%02d", seconds / 60, seconds % 60)
+        if let record = selectedWatchRecord, record.progress < 1,
+           record.resumePosition(for: request) != nil {
+            if let season = request?.season, let episode = request?.episode {
+                return "Resume S\(season) E\(episode) · \(record.positionLabel)"
+            }
+            return "Resume from \(record.positionLabel)"
         }
         if let season = request?.season, let episode = request?.episode { return "Play S\(season) E\(episode)" }
         return "Play"
@@ -638,7 +650,7 @@ struct DetailView: View {
                     if let record, record.progress >= 1.0 {
                         Text("Watched").font(.caption).foregroundStyle(AppColors.secondaryText)
                     } else if let record, record.position > 0 {
-                        Text("Resume from \(Int(record.position) / 60) min").font(.caption).foregroundStyle(AppColors.secondaryText)
+                        Text("Resume from \(record.positionLabel)").font(.caption).foregroundStyle(AppColors.secondaryText)
                         ProgressView(value: record.progress).tint(AppColors.accent)
                     } else {
                         Text("Play episode").font(.caption).foregroundStyle(AppColors.secondaryText)
