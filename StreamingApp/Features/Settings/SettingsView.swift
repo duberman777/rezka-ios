@@ -47,6 +47,14 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.menu)
 
+                Text("Auto обирає якість до 1080p для швидшого запуску. Вищу якість можна вибрати вручну.")
+                    .font(.caption).foregroundStyle(AppColors.secondaryText)
+                if let last = model.lastPlaybackStartup {
+                    LabeledContent("Останній успішний запуск", value: last)
+                    Text("Час від натискання Play до першого кадру під час відтворення.")
+                        .font(.caption).foregroundStyle(AppColors.secondaryText)
+                }
+
                 Toggle("Auto play next episode", isOn: Binding(
                     get: { model.autoPlayNext },
                     set: { model.autoPlayNext = $0 }

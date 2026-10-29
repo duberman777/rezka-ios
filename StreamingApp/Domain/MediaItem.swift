@@ -113,6 +113,27 @@ struct PlaybackSource: Sendable {
     var headers: [String: String] = [:]
 }
 
+enum PlaybackStartupPolicy {
+    static let initialBufferSeconds: TimeInterval = 3
+    static let alternativeTimeoutSeconds: Double = 8
+
+    static func stream(in streams: [VideoStream], preferredQuality: String) -> VideoStream? {
+        if let selected = streams.first(where: { $0.quality == preferredQuality }) { return selected }
+        // Auto previously fell through to streams[0], which is sorted highest
+        // first and can silently select 4K on a slow mobile connection.
+        let known = streams.filter { $0.resolution > 0 }
+        return known.filter { $0.resolution <= 1080 }.max(by: { $0.resolution < $1.resolution })
+            ?? known.min(by: { $0.resolution < $1.resolution })
+            ?? streams.first
+    }
+
+    static func lowerStream(in streams: [VideoStream], currentQuality: String, preferredQuality: String) -> VideoStream? {
+        guard preferredQuality == "Auto", let current = streams.first(where: { $0.quality == currentQuality }), current.resolution > 0 else { return nil }
+        return streams.filter { $0.resolution > 0 && $0.resolution < current.resolution }
+            .max(by: { $0.resolution < $1.resolution })
+    }
+}
+
 enum ContentSourceError: Error {
     case unavailable
     case missingMedia

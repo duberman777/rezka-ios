@@ -95,6 +95,7 @@ struct DetailView: View {
     @State private var isLoadingEpisodes = false
     @State private var episodeError: String?
     @State private var isResolvingPlayback = false
+    @State private var startupBeganAt: ContinuousClock.Instant?
     @State private var playbackSource: PlaybackSource?
     @State private var playbackRequest: PlaybackRequest?
     @State private var expandedSynopsis = false
@@ -260,7 +261,7 @@ struct DetailView: View {
             }
         }) {
             if let playbackSource {
-                PlayerView(item: currentItem, source: playbackSource, preferredQuality: model.preferredQuality, request: playbackRequest, seasons: seasons,
+                PlayerView(item: currentItem, source: playbackSource, preferredQuality: model.preferredQuality, request: playbackRequest, seasons: seasons, startupBeganAt: startupBeganAt,
                            onFailure: {
                                detailError = $0
                                if let playbackRequest {
@@ -496,6 +497,7 @@ struct DetailView: View {
     private func play(startOver: Bool = false) async {
         model.errorMessage = nil
         isResolvingPlayback = true
+        startupBeganAt = ContinuousClock.now
         defer { isResolvingPlayback = false }
         // Another device may have saved a later position since this one last synced.
         async let cloudRefresh: Void = startOver ? () : model.refreshCloudHistory()
@@ -541,6 +543,10 @@ struct DetailView: View {
                     .sensoryFeedback(.selection, trigger: model.preferredQuality)
                 }
                 .frame(minHeight: 48)
+                if model.preferredQuality == "Auto" {
+                    Text("Auto: до 1080p для швидшого запуску")
+                        .font(.caption).foregroundStyle(AppColors.secondaryText)
+                }
                 Divider().overlay(.white.opacity(0.04))
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(alignment: .firstTextBaseline, spacing: 12) {

@@ -5,6 +5,15 @@ import XCTest
 
 @MainActor
 final class PlaybackHistoryTests: XCTestCase {
+    func testRepeatedViewAccessConstructsOnlyOnePlayer() {
+        let lifecycle = PlaybackLifecycle()
+        var creations = 0
+        let first = lifecycle.player { creations += 1; return AVPlayer() }
+        let second = lifecycle.player { creations += 1; return AVPlayer() }
+        XCTAssertTrue(first === second)
+        XCTAssertEqual(creations, 1)
+    }
+
     func testPauseBufferTargetIsTenMinutesOrRemainingEpisodeDuration() {
         XCTAssertEqual(PauseBufferPolicy.requestedSeconds(at: 60, duration: 2400), 600)
         XCTAssertEqual(PauseBufferPolicy.requestedSeconds(at: 2300, duration: 2400), 100)

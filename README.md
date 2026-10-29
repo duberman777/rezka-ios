@@ -107,4 +107,10 @@ The website can change its layout or its video encoding at any time, which can b
 
 ## Buffering while paused
 
-Pausing after playback has been requested asks AVPlayer to buffer up to ten minutes ahead, capped at the remaining episode duration. A badge shows the actual contiguous buffered time while paused. Initial startup stays automatic; after a pause the larger target is retained for the current episode. This is a preferred buffer size, not a guarantee that iOS will download the requested amount. Buffering and overlay layout still need on-device validation.
+Pausing after playback has been requested asks AVPlayer to buffer up to ten minutes ahead, capped at the remaining episode duration. A badge shows the actual contiguous buffered time while paused. Initial startup uses a small buffer; after a pause the larger target is retained for the current episode. This is a preferred buffer size, not a guarantee that iOS will download the requested amount. Buffering and overlay layout still need on-device validation.
+
+## Playback startup
+
+The player is constructed once per playback lifecycle rather than in SwiftUI View.init. Auto selects up to 1080p (and can fall back to a lower quality if startup fails); explicit quality choices remain respected. Initial buffering requests three seconds, and a prepared frame plus one second of contiguous video can bypass conservative startup waiting. Automatic stall recovery stays enabled. After playback begins, normal automatic buffering resumes unless a pause has requested the longer forward buffer.
+
+Alternate URLs are tried if no frame begins playing within eight seconds. New episodes start without a redundant seek to zero; saved playback positions retain exact seeking. Settings displays the measured time from Play to a ready frame during playback. These startup changes still require iOS compilation, XCTest execution and device timing measurements.

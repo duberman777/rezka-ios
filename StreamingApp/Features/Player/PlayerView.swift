@@ -6,7 +6,6 @@ struct PlayerView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
-    @State private var player: AVPlayer
     @State private var selectedQuality: String
     @State private var alternativeIndex = 0
     @State private var pendingSeek: TimeInterval?
@@ -16,6 +15,7 @@ struct PlayerView: View {
     @State private var itemObservation: AnyCancellable?
     @State private var readyTask: Task<Void, Never>?
     @State private var autoplayTask: Task<Void, Never>?
+    @State private var startupWatchdog: Task<Void, Never>?
     @State private var source: PlaybackSource
     @State private var request: PlaybackRequest?
     @State private var isFinished = false
@@ -23,23 +23,39 @@ struct PlayerView: View {
 
     let item: MediaItem
     let seasons: [RezkaSeason]
+    let qualityPreference: String
+    let startupBeganAt: ContinuousClock.Instant?
     let onFailure: @MainActor (String) -> Void
 
-    init(item: MediaItem, source: PlaybackSource, preferredQuality: String, request: PlaybackRequest? = nil, seasons: [RezkaSeason] = [], onFailure: @escaping @MainActor (String) -> Void = { _ in }) {
+    init(item: MediaItem, source: PlaybackSource, preferredQuality: String, request: PlaybackRequest? = nil, seasons: [RezkaSeason] = [], startupBeganAt: ContinuousClock.Instant? = nil, onFailure: @escaping @MainActor (String) -> Void = { _ in }) {
         self.item = item
         self.seasons = seasons
         self.onFailure = onFailure
+        self.qualityPreference = preferredQuality
+        self.startupBeganAt = startupBeganAt
         _source = State(initialValue: source)
         _request = State(initialValue: request)
-        let stream = source.streams.first(where: { $0.quality == preferredQuality }) ?? source.streams[0]
+        let stream = PlaybackStartupPolicy.stream(in: source.streams, preferredQuality: preferredQuality) ?? source.streams[0]
         _selectedQuality = State(initialValue: stream.quality)
-        _player = State(initialValue: AVPlayer(playerItem: Self.playerItem(url: stream.url, headers: source.headers, title: item.title, request: request)))
+    }
+
+    private var player: AVPlayer {
+        // SwiftUI reruns View.init when history changes. Constructing AVPlayer
+        // inside init creates unused players even when @State keeps the old one.
+        lifecycle.player {
+            let stream = PlaybackStartupPolicy.stream(in: source.streams, preferredQuality: qualityPreference) ?? source.streams[0]
+            let result = AVPlayer()
+            result.automaticallyWaitsToMinimizeStalling = true
+            result.replaceCurrentItem(with: Self.playerItem(url: stream.url, headers: source.headers, title: item.title, request: request, automaticQuality: qualityPreference == "Auto"))
+            return result
+        }
     }
 
     var body: some View {
         NativeFullscreenPlayer(player: player, playbackDescription: playbackDescription, onPresent: startPlayback,
                                onStop: stopPlayback,
-                               onClose: { saveAndStop(); dismiss() })
+                               onClose: { saveAndStop(); dismiss() },
+                               onPlaybackStarted: playbackStarted)
             .ignoresSafeArea()
             .background(Color.black.ignoresSafeArea())
             .statusBarHidden()
@@ -91,12 +107,12 @@ struct PlayerView: View {
             request = selection
             source = result
             isFinished = false
-            let stream = result.streams.first(where: { $0.quality == selectedQuality }) ?? result.streams[0]
+            let stream = PlaybackStartupPolicy.stream(in: result.streams, preferredQuality: qualityPreference) ?? result.streams[0]
             selectedQuality = stream.quality
             alternativeIndex = 0
-            pendingSeek = 0
-            isRestoringPosition = true
-            player.replaceCurrentItem(with: Self.playerItem(url: stream.url, headers: result.headers, title: item.title, request: selection))
+            pendingSeek = nil
+            isRestoringPosition = false
+            player.replaceCurrentItem(with: Self.playerItem(url: stream.url, headers: result.headers, title: item.title, request: selection, automaticQuality: qualityPreference == "Auto"))
             model.recordProgress(for: item, position: 0, duration: 0, request: selection)
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--rezka-ui-fixtures") {
@@ -105,7 +121,8 @@ struct PlayerView: View {
             }
             #endif
             observeCurrentItem()
-            // Wait for the seek to finish before advancing the new episode.
+            // A newly created item already starts at zero; avoid a redundant seek.
+            player.playImmediately(atRate: player.defaultRate)
         } catch is CancellationError { }
         catch { failPlayback(error.localizedDescription) }
     }
@@ -138,7 +155,7 @@ struct PlayerView: View {
         lifecycle.progressObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 600), queue: .main) { _ in
             MainActor.assumeIsolated { saveProgress() }
         }
-        if pendingSeek == nil { player.play() }
+        if pendingSeek == nil { player.playImmediately(atRate: player.defaultRate) }
     }
 
     private func observeCurrentItem() {
@@ -146,6 +163,19 @@ struct PlayerView: View {
         readyTask = nil
         itemObservation?.cancel()
         guard let currentItem = player.currentItem else { return }
+        lifecycle.hasRenderedFrame = false
+        startupWatchdog?.cancel()
+        startupWatchdog = Task { @MainActor in
+            do { try await Task.sleep(for: .seconds(PlaybackStartupPolicy.alternativeTimeoutSeconds)) } catch { return }
+            guard !Task.isCancelled, !lifecycle.isStopped, !lifecycle.hasRenderedFrame,
+                  player.currentItem === currentItem,
+                  isRestoringPosition || player.timeControlStatus != .paused,
+                  let stream = source.streams.first(where: { $0.quality == selectedQuality }),
+                  alternativeIndex < stream.alternatives.count || lowerQualityStream != nil else { return }
+            // An unresponsive CDN can remain "unknown" without ever failing.
+            // Try only provided alternatives, keeping the same quality/position.
+            useAlternative()
+        }
         // Keep a synchronous subscription: AsyncPublisher can miss a status
         // change while its consumer is suspended (for example during a seek).
         itemObservation = currentItem.publisher(for: \.status)
@@ -154,6 +184,15 @@ struct PlayerView: View {
                 MainActor.assumeIsolated { handleItemStatus(currentItem) }
             }
         handleItemStatus(currentItem)
+    }
+
+    private func playbackStarted(_ currentItem: AVPlayerItem) {
+        guard !lifecycle.isStopped, !isRestoringPosition, player.currentItem === currentItem else { return }
+        lifecycle.hasRenderedFrame = true
+        startupWatchdog?.cancel()
+        guard !lifecycle.hasRecordedStartup else { return }
+        lifecycle.hasRecordedStartup = true
+        if let startupBeganAt { model.recordPlaybackStartup(since: startupBeganAt, quality: selectedQuality) }
     }
 
     private func handleItemStatus(_ currentItem: AVPlayerItem) {
@@ -213,6 +252,7 @@ struct PlayerView: View {
         itemObservation?.cancel()
         readyTask?.cancel()
         autoplayTask?.cancel()
+        startupWatchdog?.cancel()
         player.pause()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
@@ -226,19 +266,33 @@ struct PlayerView: View {
             isRestoringPosition = true
         }
         player.pause()
-        player.replaceCurrentItem(with: Self.playerItem(url: url, headers: source.headers, title: item.title, request: request))
+        player.replaceCurrentItem(with: Self.playerItem(url: url, headers: source.headers, title: item.title, request: request, automaticQuality: qualityPreference == "Auto"))
         observeCurrentItem()
         if pendingSeek == nil { player.playImmediately(atRate: player.defaultRate) }
     }
 
     private func useAlternative() {
-        guard let stream = source.streams.first(where: { $0.quality == selectedQuality }), alternativeIndex < stream.alternatives.count else {
+        guard let stream = source.streams.first(where: { $0.quality == selectedQuality }) else {
             failPlayback("This video could not be played. Choose another quality on the title page or try again.")
+            return
+        }
+        guard alternativeIndex < stream.alternatives.count else {
+            if let lower = lowerQualityStream {
+                selectedQuality = lower.quality
+                alternativeIndex = 0
+                replaceURL(lower.url)
+            } else {
+                failPlayback("This video could not be played. Choose another quality on the title page or try again.")
+            }
             return
         }
         let url = stream.alternatives[alternativeIndex]
         alternativeIndex += 1
         replaceURL(url)
+    }
+
+    private var lowerQualityStream: VideoStream? {
+        PlaybackStartupPolicy.lowerStream(in: source.streams, currentQuality: selectedQuality, preferredQuality: qualityPreference)
     }
 
     private func failPlayback(_ message: String) {
@@ -247,7 +301,7 @@ struct PlayerView: View {
         dismiss()
     }
 
-    private static func playerItem(url: URL, headers: [String: String], title: String, request: PlaybackRequest?) -> AVPlayerItem {
+    private static func playerItem(url: URL, headers: [String: String], title: String, request: PlaybackRequest?, automaticQuality: Bool) -> AVPlayerItem {
         var playbackURL = url
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--rezka-ui-fixtures"),
@@ -257,6 +311,8 @@ struct PlayerView: View {
         #endif
         let asset = AVURLAsset(url: playbackURL, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
         let item = AVPlayerItem(asset: asset)
+        item.preferredForwardBufferDuration = PlaybackStartupPolicy.initialBufferSeconds
+        if automaticQuality { item.preferredMaximumResolution = CGSize(width: 1920, height: 1080) }
         let name = AVMutableMetadataItem()
         name.identifier = .commonIdentifierTitle
         name.value = title as NSString
@@ -275,8 +331,18 @@ struct PlayerView: View {
 /// without mutating @State or an observable model inside that callback.
 @MainActor
 final class PlaybackLifecycle {
+    private var retainedPlayer: AVPlayer?
+    var hasRenderedFrame = false
+    var hasRecordedStartup = false
     var progressObserver: Any?
     private(set) var isStopped = false
+
+    func player(make: () -> AVPlayer) -> AVPlayer {
+        if let retainedPlayer { return retainedPlayer }
+        let result = make()
+        retainedPlayer = result
+        return result
+    }
 
     @discardableResult
     func stop(player: AVPlayer) -> Bool {

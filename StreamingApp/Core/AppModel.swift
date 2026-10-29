@@ -30,6 +30,7 @@ final class AppModel {
     private(set) var favoriteIDs: Set<String>
     private(set) var history: [WatchRecord]
     private(set) var episodeHistory: [String: WatchRecord]
+    private(set) var lastPlaybackStartup: String?
     private(set) var downloadedItems: [MediaItem]
     private(set) var recentSearches: [String]
     var preferredQuality: String {
@@ -295,6 +296,12 @@ final class AppModel {
         }
         persist(history, key: "watchHistory")
         watchSync.schedule(records: cloudHistoryRecords)
+    }
+
+    func recordPlaybackStartup(since start: ContinuousClock.Instant, quality: String) {
+        let elapsed = start.duration(to: ContinuousClock.now).components
+        let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+        lastPlaybackStartup = String(format: "%.1f с · %@", max(0, seconds), quality)
     }
 
     func recordStart(_ item: MediaItem) {

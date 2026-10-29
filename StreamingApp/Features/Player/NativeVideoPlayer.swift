@@ -8,17 +8,18 @@ struct NativeFullscreenPlayer: UIViewControllerRepresentable {
     let onPresent: @MainActor () -> Void
     let onStop: @MainActor () -> Void
     let onClose: @MainActor () -> Void
+    let onPlaybackStarted: @MainActor (AVPlayerItem) -> Void
 
     func makeUIViewController(context: Context) -> NativePlayerHost {
         let host = NativePlayerHost()
         host.configure(player: player, playbackDescription: playbackDescription,
-                       onPresent: onPresent, onStop: onStop, onClose: onClose)
+                       onPresent: onPresent, onStop: onStop, onClose: onClose, onPlaybackStarted: onPlaybackStarted)
         return host
     }
 
     func updateUIViewController(_ host: NativePlayerHost, context: Context) {
         host.configure(player: player, playbackDescription: playbackDescription,
-                       onPresent: onPresent, onStop: onStop, onClose: onClose)
+                       onPresent: onPresent, onStop: onStop, onClose: onClose, onPlaybackStarted: onPlaybackStarted)
     }
 
     static func dismantleUIViewController(_ host: NativePlayerHost, coordinator: ()) { host.tearDown() }
@@ -35,12 +36,16 @@ final class NativePlayerHost: UIViewController, @preconcurrency AVPlayerViewCont
     private var onPresent: (@MainActor () -> Void)?
     private var onStop: (@MainActor () -> Void)?
     private var onClose: (@MainActor () -> Void)?
+    private var onPlaybackStarted: (@MainActor (AVPlayerItem) -> Void)?
     private var itemObservation: AnyCancellable?
     private var playbackObservation: AnyCancellable?
+    private var displayObservation: AnyCancellable?
     private var bufferObservation: AnyCancellable?
     private var timeJumpObservation: AnyCancellable?
     private var hasRequestedPlayback = false
     private var didRequestLongBuffer = false
+    private var didDeliverPlaybackStart = false
+    private var didRequestImmediateStart = false
     private weak var bufferingItem: AVPlayerItem?
     private let bufferLabel = UILabel()
     private let bufferBadge = UIStackView()
@@ -49,7 +54,8 @@ final class NativePlayerHost: UIViewController, @preconcurrency AVPlayerViewCont
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .allButUpsideDown }
 
     func configure(player: AVPlayer, playbackDescription: String, onPresent: @escaping @MainActor () -> Void,
-                   onStop: @escaping @MainActor () -> Void, onClose: @escaping @MainActor () -> Void) {
+                   onStop: @escaping @MainActor () -> Void, onClose: @escaping @MainActor () -> Void,
+                   onPlaybackStarted: @escaping @MainActor (AVPlayerItem) -> Void) {
         if playback.player !== player {
             playback.player = player
             itemObservation = player.publisher(for: \.currentItem)
@@ -71,6 +77,7 @@ final class NativePlayerHost: UIViewController, @preconcurrency AVPlayerViewCont
         updatePlaybackDescription(player.currentItem, fallback: playbackDescription)
         self.onPresent = onPresent
         self.onStop = onStop
+        self.onPlaybackStarted = onPlaybackStarted
     }
 
     private func updatePlaybackDescription(_ item: AVPlayerItem?, fallback: String? = nil) {
@@ -91,6 +98,11 @@ final class NativePlayerHost: UIViewController, @preconcurrency AVPlayerViewCont
         playback.exitsFullScreenWhenPlaybackEnds = false
         playback.loadViewIfNeeded()
         playback.view.accessibilityIdentifier = "native-player"
+        displayObservation = playback.publisher(for: \.isReadyForDisplay)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.updatePauseBuffer() }
+            }
         installBufferBadge()
     }
 
@@ -126,6 +138,8 @@ final class NativePlayerHost: UIViewController, @preconcurrency AVPlayerViewCont
         bufferingItem = item
         hasRequestedPlayback = false
         didRequestLongBuffer = false
+        didDeliverPlaybackStart = false
+        didRequestImmediateStart = false
         guard let item else { updatePauseBuffer(); return }
         bufferObservation = item.publisher(for: \.loadedTimeRanges)
             .combineLatest(item.publisher(for: \.status))
@@ -150,16 +164,29 @@ final class NativePlayerHost: UIViewController, @preconcurrency AVPlayerViewCont
         if player.timeControlStatus != .paused { hasRequestedPlayback = true }
         let position = player.currentTime().seconds
         let duration = item.duration.seconds
+        let ahead = PauseBufferPolicy.bufferedSecondsAhead(at: position, ranges: item.loadedTimeRanges.map(\.timeRangeValue))
+        // Skip conservative startup prediction once a frame and one second of
+        // data are ready. Keep automatic stall recovery enabled at all times.
+        if !didDeliverPlaybackStart, !didRequestImmediateStart, playback.isReadyForDisplay,
+           player.timeControlStatus == .waitingToPlayAtSpecifiedRate,
+           player.reasonForWaitingToPlay == .toMinimizeStalls, ahead >= 1 {
+            didRequestImmediateStart = true
+            player.playImmediately(atRate: player.defaultRate)
+        }
+        if !didDeliverPlaybackStart, player.timeControlStatus == .playing, playback.isReadyForDisplay {
+            didDeliverPlaybackStart = true
+            onPlaybackStarted?(item)
+        }
         let hasEnded = duration.isFinite && duration > 0 && position >= duration
         let paused = hasRequestedPlayback && player.timeControlStatus == .paused && item.status == .readyToPlay && !hasEnded
-        // Initial startup remains automatic. Once the user pauses, retain the
+        // Startup uses a small target. Once the user pauses, retain the
         // larger target for this episode so resuming does not shrink the reserve.
         if paused { didRequestLongBuffer = true }
-        let preferred = didRequestLongBuffer ? PauseBufferPolicy.requestedSeconds(at: position, duration: duration) : 0
+        let preferred = didRequestLongBuffer ? PauseBufferPolicy.requestedSeconds(at: position, duration: duration)
+            : (didDeliverPlaybackStart ? 0 : PlaybackStartupPolicy.initialBufferSeconds)
         if item.preferredForwardBufferDuration != preferred { item.preferredForwardBufferDuration = preferred }
         bufferBadge.isHidden = !paused
         guard paused else { return }
-        let ahead = PauseBufferPolicy.bufferedSecondsAhead(at: position, ranges: item.loadedTimeRanges.map(\.timeRangeValue))
         let seconds = Int(min(ahead, Double(Int.max / 2)))
         let target = Int(preferred)
         bufferLabel.text = String(format: "Завантажено наперед: %d:%02d · ціль %d:%02d", seconds / 60, seconds % 60, target / 60, target % 60)
@@ -200,8 +227,10 @@ final class NativePlayerHost: UIViewController, @preconcurrency AVPlayerViewCont
         onStop = nil
         onClose = nil
         onPresent = nil
+        onPlaybackStarted = nil
         itemObservation = nil
         playbackObservation = nil
+        displayObservation = nil
         bufferObservation = nil
         timeJumpObservation = nil
         playback.delegate = nil
